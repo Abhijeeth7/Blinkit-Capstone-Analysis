@@ -8,6 +8,7 @@ This project aims to analyze Blinkit grocery sales data to derive actionable ins
 Source: Blinkit Grocery Sales Data (Excel file)
 Original Path: D:\Blinkit_Cap_Project\Excel\BlinkIT Grocery Data.xlsx
 Database Destination: MySQL blinkit_capstone_db, table blinkit_capstone_table
+
 3. Tools & Technologies
 
 Data Extraction & Transformation (ETL): Python (Pandas, SQLAlchemy, MySQL Connector)
