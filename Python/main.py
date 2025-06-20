@@ -1,7 +1,7 @@
 import pandas as pd
-from sqlalchemy import create_engine, text # Make sure 'text' is imported
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError # <-- Correct import for SQLAlchemyError
 import mysql.connector
-
 # --- 1. Configuration (same as before) ---
 EXCEL_FILE_PATH = r"D:\Blinkit_Cap_Project\Excel\BlinkIT Grocery Data.xlsx"
 EXCEL_SHEET_NAME = "BlinkIT Grocery Data"
@@ -9,7 +9,7 @@ DB_HOST = '127.0.0.1'
 DB_USER = 'root'
 DB_PASSWORD = 'password'
 DB_NAME = 'blinkit_capstone_db'
-TABLE_NAME = 'blinkit_sales_data'
+TABLE_NAME = 'blinkit_capstone_table'
 
 # Define the path for the cleaned CSV output
 CLEANED_CSV_FILE_PATH = r'D:\Blinkit_Cap_Project\Excel\BlinkIT_Grocery_Data_CLEANED.csv'
@@ -20,6 +20,7 @@ print(f"Attempting to read Excel file from: {EXCEL_FILE_PATH} (Sheet: {EXCEL_SHE
 try:
     df = pd.read_excel(EXCEL_FILE_PATH, sheet_name=EXCEL_SHEET_NAME)
     print(f"Successfully loaded {len(df)} rows from Excel.")
+    na_values = ['#N/A', 'N/A', 'NA', '-', '', ' ']
     # ... (rest of your print statements for df.head(), df.info()) ...
 except Exception as e:
     print(f"An error occurred while reading the Excel file: {e}")
@@ -50,6 +51,62 @@ for col in original_columns:
 df.rename(columns=cleaned_column_map, inplace=True)
 print("Cleaned Column Names:")
 print(df.columns.tolist())
+
+# --- DIAGNOSTIC STEP: Check item_fat_content before standardization/final null handling ---
+print("\n--- Diagnostic Check for item_fat_content before Standardization ---")
+if 'item_fat_content' in df.columns:
+    print(f"Initial unique values in 'item_fat_content' (post read_excel with na_values): {df['item_fat_content'].unique()}")
+    print(f"Nulls in 'item_fat_content' after read_excel (but before standardization): {df['item_fat_content'].isnull().sum()}")
+
+    # Display rows where item_fat_content is NaN right after read_excel
+    nan_rows_initial = df[df['item_fat_content'].isnull()]
+    if not nan_rows_initial.empty:
+        print("\nFirst 5 rows with NaN in 'item_fat_content' (post read_excel):")
+        print(nan_rows_initial[['item_identifier', 'item_fat_content']].head())
+    else:
+        print("No NaN values found in 'item_fat_content' immediately after read_excel.")
+else:
+    print("Warning: 'item_fat_content' column not found for diagnostic check.")
+
+
+# --- Standardizing 'item_fat_content' Column ---
+print("\n--- Standardizing 'item_fat_content' Column ---")
+if 'item_fat_content' in df.columns:
+    # Ensure all values are treated as strings for .str.upper() before mapping
+    # This also converts existing NaNs to string 'nan' if not caught by na_values in read_excel
+    df['item_fat_content'] = df['item_fat_content'].astype(str)
+
+    # Convert all to uppercase first to handle case variations easily
+    df['item_fat_content'] = df['item_fat_content'].str.upper()
+
+    # Define the mapping for standardization
+    fat_content_mapping = {
+        'LOW FAT': 'Low Fat',
+        'LF': 'Low Fat',
+        'REGULAR': 'Regular',
+        'REG': 'Regular',
+        'reg': 'Regular',
+        'NAN': 'Unknown' # Map the string 'NAN' to 'Unknown', if it exists after astype(str)
+    }
+
+    # Apply the mapping
+    df['item_fat_content'] = df['item_fat_content'].replace(fat_content_mapping)
+
+    # --- Handle remaining NaN values in 'item_fat_content' after standardization ---
+    # This catch-all is important in case some new form of NaN appears
+    initial_nulls_fat_content = df['item_fat_content'].isnull().sum()
+    if initial_nulls_fat_content > 0:
+        print(f"  - Found {initial_nulls_fat_content} NaN values in 'item_fat_content' AFTER standardization (before final fill).")
+        # Strategy: Impute with 'Unknown' for any remaining NaNs
+        df['item_fat_content'].fillna('Unknown', inplace=True)
+        print(f"  - Imputed 'item_fat_content' NaN values with 'Unknown'.")
+    else:
+        print("  - No NaN values found in 'item_fat_content' after standardization.")
+
+    print(f"  - Unique 'item_fat_content' values after ALL standardization and NaN handling: {df['item_fat_content'].unique()}")
+
+else:
+    print("  - Warning: 'item_fat_content' column not found for standardization.")
 
 
 # --- Comprehensive Null Value Check (Before Specific Imputation) ---
@@ -170,4 +227,62 @@ except Exception as e:
     print(f"Error saving cleaned data to CSV: {e}")
     # Decide if you want to exit here or proceed with MySQL import of potentially outdated data
     exit()
+
+# --- 4. Establish MySQL Connection (Ensure this block is present and NOT commented out) ---
+print("\n--- Establishing MySQL Connection ---")
+try:
+    # Create the SQLAlchemy engine
+    engine = create_engine(f"mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}")
+
+    # Test connection
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1")) # A simple query to test the connection
+    print("Successfully connected to MySQL.")
+
+    # --- 5. Load DataFrame to MySQL Table ---
+    print(f"\nAttempting to load data into table '{TABLE_NAME}' in database '{DB_NAME}'...")
+    try:
+        df.to_sql(
+            name=TABLE_NAME,
+            con=engine,
+            if_exists='replace',
+            index=False,
+            chunksize=1000  # Use chunksize for large datasets
+        )
+        print(f"Successfully loaded {len(df)} rows into table '{TABLE_NAME}' in database '{DB_NAME}'.")
+
+        # --- ADD THIS NEW VERIFICATION BLOCK ---
+        print("\nVerifying row count from Python after load...")
+        with engine.connect() as connection_verify:  # Use a new connection object for clarity
+            # Fetch the scalar result (single value) from the COUNT(*) query
+            result = connection_verify.execute(text(f"SELECT COUNT(*) FROM {DB_NAME}.{TABLE_NAME};")).scalar()
+            print(f"Row count in '{TABLE_NAME}' as reported by Python: {result}")
+            if result == len(df):
+                print("Python verification: Row count matches DataFrame size. Data loaded successfully.")
+            else:
+                print(f"Python verification: WARNING! Row count mismatch. Expected {len(df)}, got {result}.")
+        # --- END NEW VERIFICATION BLOCK ---
+
+    except SQLAlchemyError as e:  # Correctly indented except for inner try-block
+        print(f"SQLAlchemy Error during data load: {e}")
+        print(f"Underlying DBAPI error: {e.orig}")
+        print("This often indicates a problem with table schema, data types, constraints, or database session.")
+        exit()
+    except Exception as e:  # General catch for inner try-block
+        print(f"General Error loading data into MySQL: {e}")
+        exit()
+
+except SQLAlchemyError as e:  # Correctly indented except for outer try-block (connection)
+    print(f"SQLAlchemy Connection Error: {e}")
+    print(f"Underlying DBAPI error: {e.orig}")
+    print("Please check DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, and MySQL server status.")
+    exit()
+except Exception as e:  # General catch for outer try-block
+    print(f"General Connection Error: {e}")
+    exit()
+finally:
+    if 'engine' in locals() and engine:
+        engine.dispose()
+        print("MySQL connection closed.")
+
 

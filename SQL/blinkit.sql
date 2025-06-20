@@ -1,32 +1,18 @@
-CREATE DATABASE blinkit_capstone_db;
-USE blinkit_capstone_db;
-CREATE TABLE blinkit_sales_data (
-    -- Primary Key: Do you have a unique identifier for each row/transaction?
-    -- If not, you might add an auto-incrementing ID.
-    id INT AUTO_INCREMENT PRIMARY KEY,
+SELECT COUNT(*) FROM blinkit_capstone_db.blinkit_capstone_table;
 
-    -- Outlet Information
-    outlet_establishment_date DATE,
-    outlet_location_type VARCHAR(50),
-    outlet_type VARCHAR(50),
-
-    -- Item Information
-    item_mrp DECIMAL(10, 2), -- Maximum Retail Price
-    item_type VARCHAR(100),
-    item_weight DECIMAL(10, 2),
-    item_visibility DECIMAL(10, 4), -- Often a percentage or ratio
-
-    -- Sales and Performance
-    item_outlet_sales DECIMAL(10, 2), -- Specific item sales at an outlet
-    -- If 'Sales' is distinct, you'd add it here too:
-    -- total_order_sales DECIMAL(10, 2),
-    rating DECIMAL(3, 1), -- Assuming rating is like 1.0 to 5.0
+SELECT
+    item_fat_content,
+    SUM(sales) AS Total_Sales,
+    AVG(sales) AS Average_Sales,
+    COUNT(DISTINCT item_identifier) AS Number_of_Unique_Items,
+    COUNT(item_identifier) AS Total_Items_Sold, -- This counts all instances of items sold (e.g., if Item A sold 5 times, it counts as 5)
+    AVG(rating) AS Average_Rating
+FROM
+    blinkit_capstone_db.blinkit_capstone_table
+GROUP BY
+    item_fat_content
+ORDER BY
+    Total_Sales DESC;
     
-    -- Add any other columns you might uncover from the left side of the image
-    -- e.g., product_id, item_id, transaction_id, etc.
-    
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-SELECT COUNT(*) from blinkit_sales_data;
-
+SELECT COUNT(outlet_identifier) as OU_ID from blinkit_capstone_db.blinkit_capstone_table
+WHERE outlet_establishment_year = 2011;
