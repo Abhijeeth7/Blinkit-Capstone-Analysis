@@ -171,9 +171,3 @@ except Exception as e:
     # Decide if you want to exit here or proceed with MySQL import of potentially outdated data
     exit()
 
-
-# --- 4. Establish MySQL Connection (same as before) ---
-# ... (your MySQL connection code) ...
-
-# --- 5. Load DataFrame to MySQL Table (same as before) ---
-# ... (your df.to_sql code) ...
